@@ -19,6 +19,7 @@ $success = '';
 $mode = 'tambah';
 
 $idEdit = 0;
+$idFakultas = '';
 $idProdi = '';
 $npm = '';
 $nama = '';
@@ -59,10 +60,24 @@ if (isset($_GET['status'])) {
     }
 }
 
+// Daftar fakultas
+$daftarFakultas = array();
+$resFakultas = $conn->query(
+    "SELECT id_fakultas, nama_fakultas
+     FROM fakultas
+     ORDER BY nama_fakultas"
+);
+
+if ($resFakultas) {
+    while ($r = $resFakultas->fetch_assoc()) {
+        $daftarFakultas[] = $r;
+    }
+}
+
 // Daftar program studi
 $daftarProdi = array();
 $resProdi = $conn->query(
-    "SELECT p.id_program_studi, p.kode_program_studi,
+    "SELECT p.id_program_studi, p.id_fakultas, p.kode_program_studi,
             p.nama_program_studi, p.jenjang, f.nama_fakultas
      FROM program_studi p
      INNER JOIN fakultas f ON f.id_fakultas = p.id_fakultas
@@ -82,7 +97,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['edit'])) {
 
     if ($id && $id > 0) {
         $stmt = $conn->prepare(
-            "SELECT * FROM mahasiswa WHERE id_mahasiswa = ?"
+            "SELECT m.*, p.id_fakultas
+             FROM mahasiswa m
+             INNER JOIN program_studi p ON p.id_program_studi = m.id_program_studi
+             WHERE m.id_mahasiswa = ?"
         );
 
         if ($stmt) {
@@ -95,6 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['edit'])) {
 
                 $idEdit = (int) $d['id_mahasiswa'];
                 $idProdi = $d['id_program_studi'];
+                $idFakultas = $d['id_fakultas'];
                 $npm = $d['npm'];
                 $nama = $d['nama_mahasiswa'];
                 $jk = $d['jenis_kelamin'];
@@ -126,6 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($aksi === 'tambah' || $aksi === 'edit') {
             $idEdit = isset($_POST['id_mahasiswa']) ? (int) $_POST['id_mahasiswa'] : 0;
+            $idFakultas = isset($_POST['id_fakultas']) ? (int) $_POST['id_fakultas'] : 0;
             $idProdi = isset($_POST['id_program_studi']) ? (int) $_POST['id_program_studi'] : 0;
             $npm = isset($_POST['npm']) ? trim($_POST['npm']) : '';
             $nama = isset($_POST['nama_mahasiswa']) ? trim($_POST['nama_mahasiswa']) : '';
@@ -136,7 +156,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $alamat = isset($_POST['alamat']) ? trim($_POST['alamat']) : '';
             $statusMhs = isset($_POST['status_mahasiswa']) ? $_POST['status_mahasiswa'] : '';
 
-            if ($idProdi <= 0) {
+            if ($idFakultas <= 0) {
+                $error = 'Silakan pilih fakultas.';
+            } elseif ($idProdi <= 0) {
                 $error = 'Silakan pilih program studi.';
             } elseif ($npm === '' || $nama === '') {
                 $error = 'NPM dan nama mahasiswa wajib diisi.';
@@ -154,16 +176,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Pastikan prodi tersedia
                 $cek = $conn->prepare(
                     "SELECT id_program_studi FROM program_studi
-                     WHERE id_program_studi = ? AND status_aktif = 'Aktif'"
+                     WHERE id_program_studi = ?
+                       AND id_fakultas = ?
+                       AND status_aktif = 'Aktif'"
                 );
 
-                $cek->bind_param('i', $idProdi);
+                $cek->bind_param('ii', $idProdi, $idFakultas);
                 $cek->execute();
                 $prodiAda = $cek->get_result()->num_rows > 0;
                 $cek->close();
 
                 if (!$prodiAda) {
-                    $error = 'Program studi tidak ditemukan atau tidak aktif.';
+                    $error = 'Program studi tidak sesuai dengan fakultas atau tidak aktif.';
                 } elseif ($aksi === 'tambah') {
                     // NPM harus unik
                     $stmt = $conn->prepare(
@@ -434,13 +458,27 @@ th{background:#f7f9fc;color:#596579;font-size:11px}td{font-size:12px}tbody tr:ho
                     </div>
 
                     <div class="form-group">
+                        <label for="id_fakultas">Fakultas *</label>
+                        <select id="id_fakultas" name="id_fakultas" required>
+                            <option value="">-- Pilih Fakultas --</option>
+                            <?php foreach ($daftarFakultas as $f): ?>
+                                <option value="<?php echo (int) $f['id_fakultas']; ?>"
+                                    <?php echo ((string) $idFakultas === (string) $f['id_fakultas']) ? 'selected' : ''; ?>>
+                                    <?php echo e($f['nama_fakultas']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
                         <label for="id_program_studi">Program Studi *</label>
                         <select id="id_program_studi" name="id_program_studi" required>
                             <option value="">-- Pilih Program Studi --</option>
                             <?php foreach ($daftarProdi as $p): ?>
                                 <option value="<?php echo (int) $p['id_program_studi']; ?>"
+                                    data-fakultas="<?php echo (int) $p['id_fakultas']; ?>"
                                     <?php echo ((string) $idProdi === (string) $p['id_program_studi']) ? 'selected' : ''; ?>>
-                                    <?php echo e($p['kode_program_studi'] . ' - ' . $p['nama_program_studi'] . ' (' . $p['jenjang'] . ') / ' . $p['nama_fakultas']); ?>
+                                    <?php echo e($p['kode_program_studi'] . ' - ' . $p['nama_program_studi'] . ' (' . $p['jenjang'] . ')'); ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -574,5 +612,38 @@ th{background:#f7f9fc;color:#596579;font-size:11px}td{font-size:12px}tbody tr:ho
         </div>
     </section>
 </main>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const fakultas = document.getElementById('id_fakultas');
+    const prodi = document.getElementById('id_program_studi');
+
+    function filterProdi() {
+        const idFakultasTerpilih = fakultas.value;
+
+        Array.from(prodi.options).forEach(function (option) {
+            if (option.value === '') {
+                option.hidden = false;
+                return;
+            }
+
+            option.hidden = !idFakultasTerpilih ||
+                option.dataset.fakultas !== idFakultasTerpilih;
+        });
+
+        const pilihan = prodi.options[prodi.selectedIndex];
+        if (pilihan && pilihan.value !== '' &&
+            pilihan.dataset.fakultas !== idFakultasTerpilih) {
+            prodi.value = '';
+        }
+    }
+
+    fakultas.addEventListener('change', function () {
+        prodi.value = '';
+        filterProdi();
+    });
+
+    filterProdi();
+});
+</script>
 </body>
 </html>
